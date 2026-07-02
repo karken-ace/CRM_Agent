@@ -502,7 +502,10 @@ def get_meta_insights(
             insights = meta_client.get_insights()
             return {"status": "success", "data": insights}
 
-        base_fields = "spend,impressions,clicks,ctr,cpc,cpm,reach,frequency"
+        # actions/action_values carry conversion counts (purchase,
+        # complete_registration, ...) and their monetary values — the
+        # portfolio KPIs are computed from these on the backend.
+        base_fields = "spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,actions,action_values,purchase_roas,inline_link_clicks"
         level_id_fields = {
             "campaign": ",campaign_id,campaign_name",
             "adset": ",adset_id,adset_name,campaign_id,campaign_name",
