@@ -28,23 +28,12 @@ _db = None
 
 
 def _load_mongo_uri() -> Optional[str]:
-    """Same fallback chain as meta_cache: env first, then backend's .env."""
-    uri = os.environ.get("MONGODB_URI")
-    if uri:
-        return uri.strip()
-    env_path = "/home/CRM/backend/.env"
-    if not os.path.isfile(env_path):
-        return None
+    """Env var first, then mongodb.uri in meta_config.json — see mongo_uri.py."""
     try:
-        with open(env_path, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("MONGODB_URI"):
-                    _, _, val = line.partition("=")
-                    return val.strip().strip('"').strip("'") or None
-    except Exception:
-        return None
-    return None
+        from .mongo_uri import load_mongo_uri
+    except ImportError:
+        from mongo_uri import load_mongo_uri
+    return load_mongo_uri()
 
 
 def _get_db():

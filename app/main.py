@@ -12,10 +12,13 @@ from watchdog.events import FileSystemEventHandler
 
 logger = logging.getLogger(__name__)
 
+import hmac
+
 import httpx
 import requests
 import urllib.parse
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 # L2 persistent cache — used to memoize expensive Meta-iframe extraction
@@ -72,7 +75,8 @@ def load_config():
         },
         "crm": {
             "base_url": os.getenv("CRM_BASE_URL", "http://localhost:8000"),
-            "agent_token": os.getenv("AGENT_TOKEN")
+            "agent_token": os.getenv("AGENT_TOKEN"),
+            "agent_shared_key": os.getenv("AGENT_SHARED_KEY")
         }
     }
 
@@ -107,6 +111,26 @@ def reload_config():
 
 
 app = FastAPI(title="SM Agent", version="0.1.0")
+
+# ── Inbound auth ────────────────────────────────────────────────────────────
+# The backend sends X-Agent-Key (its AGENT_SHARED_KEY) on every call; every
+# endpoint except /healthz rejects requests that don't carry the same key.
+# Without a key configured the API is open — acceptable only when port 9000
+# is firewalled to the backend IP, hence the loud startup warning.
+AGENT_SHARED_KEY = (
+    config.get("crm", {}).get("agent_shared_key")
+    or os.getenv("AGENT_SHARED_KEY")
+    or ""
+)
+
+
+@app.middleware("http")
+async def require_shared_key(request: Request, call_next):
+    if AGENT_SHARED_KEY and request.url.path != "/healthz":
+        supplied = request.headers.get("x-agent-key") or ""
+        if not hmac.compare_digest(supplied, AGENT_SHARED_KEY):
+            return JSONResponse(status_code=401, content={"detail": "Invalid or missing X-Agent-Key"})
+    return await call_next(request)
 
 # Secret management - use /etc/sm-agent in Docker, ./secrets locally
 if os.path.exists("/etc/sm-agent"):
@@ -366,6 +390,12 @@ async def on_startup():
         sys.exit(1)  # Exit the entire process
         
     print(f"Agent starting with valid credentials: agent_id={current_agent_id}")
+    if not AGENT_SHARED_KEY:
+        print(
+            "WARNING: crm.agent_shared_key / AGENT_SHARED_KEY is not set — the "
+            "inbound API on port 9000 is UNAUTHENTICATED. Only acceptable when "
+            "the port is firewalled to the backend IP."
+        )
     asyncio.create_task(heartbeat_loop())
     asyncio.create_task(pull_config_loop())
     asyncio.create_task(pull_commands_loop())
@@ -472,7 +502,10 @@ def get_meta_insights(
             insights = meta_client.get_insights()
             return {"status": "success", "data": insights}
 
-        base_fields = "spend,impressions,clicks,ctr,cpc,cpm,reach,frequency"
+        # actions/action_values carry conversion counts (purchase,
+        # complete_registration, ...) and their monetary values — the
+        # portfolio KPIs are computed from these on the backend.
+        base_fields = "spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,actions,action_values,purchase_roas,inline_link_clicks"
         level_id_fields = {
             "campaign": ",campaign_id,campaign_name",
             "adset": ",adset_id,adset_name,campaign_id,campaign_name",

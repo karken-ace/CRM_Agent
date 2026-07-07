@@ -60,25 +60,12 @@ def _strip_volatile_params(url: str) -> str:
 
 
 def _load_mongo_uri() -> Optional[str]:
-    """Resolve MONGODB_URI from env or the backend's .env file."""
-    uri = os.environ.get("MONGODB_URI")
-    if uri:
-        return uri.strip()
-    # Fall back to backend/.env so we don't have to duplicate config
-    env_path = "/home/CRM/backend/.env"
-    if not os.path.isfile(env_path):
-        return None
+    """Env var first, then mongodb.uri in meta_config.json — see mongo_uri.py."""
     try:
-        with open(env_path, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("MONGODB_URI"):
-                    _, _, val = line.partition("=")
-                    val = val.strip().strip('"').strip("'")
-                    return val or None
-    except Exception:
-        return None
-    return None
+        from .mongo_uri import load_mongo_uri
+    except ImportError:
+        from mongo_uri import load_mongo_uri
+    return load_mongo_uri()
 
 
 def _get_collection():
